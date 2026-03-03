@@ -1,0 +1,19 @@
+{
+  "models": {
+    "openai/whisper-base": {
+      "model_id": "openai/whisper-base",
+      "model_type": "whisper",
+      "added_at": "2026-02-27T11:16:19.673437",
+      "is_loaded": true,
+      "last_used": "2026-03-03T19:18:19.681781"
+    },
+    "openai/whisper-small": {
+      "model_id": "openai/whisper-small",
+      "model_type": "whisper",
+      "added_at": "2026-02-27T11:28:50.090576",
+      "is_loaded": true,
+      "last_used": "2026-03-03T19:18:31.794057"
+    }
+  },
+  "last_updated": "2026-03-03T19:18:31.794057"
+}

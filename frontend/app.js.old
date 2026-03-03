@@ -1,0 +1,544 @@
+// API Configuration
+const API_BASE_URL = 'http://localhost:8000';
+const API_ENDPOINTS = {
+    transcribe: `${API_BASE_URL}/api/v1/transcription/transcribe`,
+    health: `${API_BASE_URL}/health`,
+    registryModels: `${API_BASE_URL}/api/v1/transcription/models/registry`,
+    loadedModels: `${API_BASE_URL}/api/v1/transcription/models/loaded`,
+    recommendedModels: `${API_BASE_URL}/api/v1/transcription/models/recommended`,
+    loadModel: `${API_BASE_URL}/api/v1/transcription/models/load`,
+    unloadModel: `${API_BASE_URL}/api/v1/transcription/models/unload`,
+    deleteModel: `${API_BASE_URL}/api/v1/transcription/models/delete`
+};
+
+// DOM Elements - Tabs
+const tabButtons = document.querySelectorAll('.tab-button');
+const transcribeTab = document.getElementById('transcribe-tab');
+const modelsTab = document.getElementById('models-tab');
+
+// DOM Elements - Transcribe
+const dropArea = document.getElementById('drop-area');
+const fileInput = document.getElementById('file-input');
+const uploadPrompt = document.getElementById('upload-prompt');
+const fileInfo = document.getElementById('file-info');
+const fileName = document.getElementById('file-name');
+const fileSize = document.getElementById('file-size');
+const changeFileBtn = document.getElementById('change-file-btn');
+const transcribeBtn = document.getElementById('transcribe-btn');
+const loadingCard = document.getElementById('loading-card');
+const resultsCard = document.getElementById('results-card');
+const errorCard = document.getElementById('error-card');
+const transcriptionText = document.getElementById('transcription-text');
+const copyBtn = document.getElementById('copy-btn');
+const closeErrorBtn = document.getElementById('close-error-btn');
+const statusBadge = document.getElementById('status-badge');
+const modelSelect = document.getElementById('model-select');
+const loadedModelsCount = document.getElementById('loaded-models-count');
+
+// DOM Elements - Models
+const newModelId = document.getElementById('new-model-id');
+const loadModelBtn = document.getElementById('load-model-btn');
+const recommendedModelsDiv = document.getElementById('recommended-models');
+const modelsList = document.getElementById('models-list');
+const refreshModelsBtn = document.getElementById('refresh-models-btn');
+
+// State
+let selectedFile = null;
+let allModels = [];
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    checkHealth();
+    loadModels();
+    loadRecommendedModels();
+    setupEventListeners();
+});
+
+// Setup Event Listeners
+function setupEventListeners() {
+    // Tab switching
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => switchTab(button.dataset.tab));
+    });
+    
+    // File input
+    dropArea.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', handleFileSelect);
+    
+    // Drag and drop
+    dropArea.addEventListener('dragover', handleDragOver);
+    dropArea.addEventListener('dragleave', handleDragLeave);
+    dropArea.addEventListener('drop', handleDrop);
+    
+    // Buttons
+    changeFileBtn.addEventListener('click', () => {
+        selectedFile = null;
+        showUploadPrompt();
+        fileInput.value = '';
+    });
+    
+    transcribeBtn.addEventListener('click', transcribeAudio);
+    copyBtn.addEventListener('click', copyTranscription);
+    closeErrorBtn.addEventListener('click', hideError);
+    
+    // Model management
+    loadModelBtn.addEventListener('click', loadNewModel);
+    refreshModelsBtn.addEventListener('click', loadModels);
+}
+
+// Tab Switching
+function switchTab(tab) {
+    // Update button states
+    tabButtons.forEach(btn => {
+        if (btn.dataset.tab === tab) {
+            btn.classList.add('active');
+            btn.classList.remove('text-gray-600');
+        } else {
+            btn.classList.remove('active');
+            btn.classList.add('text-gray-600');
+        }
+    });
+    
+    // Show/hide tab content
+    if (tab === 'transcribe') {
+        transcribeTab.classList.remove('hidden');
+        modelsTab.classList.add('hidden');
+    } else {
+        transcribeTab.classList.add('hidden');
+        modelsTab.classList.remove('hidden');
+        loadModels(); // Refresh models list
+    }
+}
+
+// Check API Health
+async function checkHealth() {
+    try {
+        const response = await fetch(API_ENDPOINTS.health);
+        const data = await response.json();
+        
+        if (data.status === 'healthy') {
+            statusBadge.innerHTML = '<i class="fas fa-circle text-xs mr-1 text-green-500"></i> Online';
+            statusBadge.className = 'px-3 py-1 rounded-full text-sm font-semibold bg-green-100 text-green-700';
+        } else {
+            throw new Error('Unhealthy');
+        }
+    } catch (error) {
+        statusBadge.innerHTML = '<i class="fas fa-circle text-xs mr-1 text-red-500"></i> Offline';
+        statusBadge.className = 'px-3 py-1 rounded-full text-sm font-semibold bg-red-100 text-red-700';
+        showError('API is offline. Please check if the backend server is running.');
+    }
+}
+
+// Load Models
+async function loadModels() {
+    try {
+        const response = await fetch(API_ENDPOINTS.registryModels);
+        const data = await response.json();
+        
+        if (data.success) {
+            allModels = data.models;
+            updateModelsList(data.models);
+            updateModelDropdown(data.models);
+            updateLoadedCount(data.loaded_count);
+        }
+    } catch (error) {
+        console.error('Error loading models:', error);
+        showError('Failed to load models list');
+    }
+}
+
+// Update Models List
+function updateModelsList(models) {
+    if (models.length === 0) {
+        modelsList.innerHTML = `
+            <div class="text-center text-gray-500 py-8">
+                <i class="fas fa-inbox text-3xl mb-3"></i>
+                <p>No models registered yet</p>
+                <p class="text-sm mt-2">Load a model to get started</p>
+            </div>
+        `;
+        return;
+    }
+    
+    modelsList.innerHTML = models.map(model => `
+        <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
+            <div class="flex items-start justify-between">
+                <div class="flex-1">
+                    <div class="flex items-center mb-2">
+                        <span class="font-semibold text-gray-800 break-all">${model.model_id}</span>
+                        ${model.is_loaded ? 
+                            '<span class="ml-2 px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">Loaded</span>' : 
+                            '<span class="ml-2 px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">Not Loaded</span>'
+                        }
+                    </div>
+                    <div class="text-xs text-gray-500 space-y-1">
+                        <div><i class="fas fa-tag mr-1"></i> Type: ${model.model_type}</div>
+                        <div><i class="fas fa-clock mr-1"></i> Added: ${new Date(model.added_at).toLocaleString()}</div>
+                        ${model.last_used ? `<div><i class="fas fa-history mr-1"></i> Last used: ${new Date(model.last_used).toLocaleString()}</div>` : ''}
+                    </div>
+                </div>
+                <div class="flex flex-col gap-2 ml-4">
+                    ${!model.is_loaded ? 
+                        `<button onclick="loadModelById('${model.model_id}')" class="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition">
+                            <i class="fas fa-download mr-1"></i> Load
+                        </button>` : 
+                        `<button onclick="unloadModelById('${model.model_id}')" class="px-3 py-1 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700 transition">
+                            <i class="fas fa-eject mr-1"></i> Unload
+                        </button>`
+                    }
+                    <button onclick="deleteModelById('${model.model_id}')" class="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition">
+                        <i class="fas fa-trash mr-1"></i> Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Update Model Dropdown
+function updateModelDropdown(models) {
+    const loadedModels = models.filter(m => m.is_loaded);
+    
+    if (loadedModels.length === 0) {
+        modelSelect.innerHTML = '<option value="">No models loaded - Go to Model Management to load models</option>';
+        modelSelect.disabled = true;
+        return;
+    }
+    
+    modelSelect.disabled = false;
+    modelSelect.innerHTML = loadedModels.map(model => 
+        `<option value="${model.model_id}">${model.model_id}</option>`
+    ).join('');
+}
+
+// Update Loaded Count
+function updateLoadedCount(count) {
+    loadedModelsCount.textContent = `${count} model(s) loaded`;
+}
+
+// Load Recommended Models
+async function loadRecommendedModels() {
+    try {
+        const response = await fetch(API_ENDPOINTS.recommendedModels);
+        const data = await response.json();
+        
+        if (data.success) {
+            recommendedModelsDiv.innerHTML = data.recommended_models.map(modelId => `
+                <span class="px-3 py-1 bg-blue-100 text-blue-700 text-sm rounded-full cursor-pointer hover:bg-blue-200 transition"
+                      onclick="newModelId.value='${modelId}'">
+                    ${modelId}
+                </span>
+            `).join('');
+        }
+    } catch (error) {
+        console.error('Error loading recommended models:', error);
+    }
+}
+
+// Load New Model
+async function loadNewModel() {
+    const modelId = newModelId.value.trim();
+    
+    if (!modelId) {
+        showError('Please enter a model ID');
+        return;
+    }
+    
+    loadModelBtn.disabled = true;
+    loadModelBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Loading...';
+    
+    try {
+        const formData = new FormData();
+        formData.append('model_id', modelId);
+        
+        const response = await fetch(API_ENDPOINTS.loadModel, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showSuccess(`Model ${modelId} loaded successfully!`);
+            newModelId.value = '';
+            loadModels(); // Refresh list
+        } else {
+            throw new Error(data.message || 'Failed to load model');
+        }
+    } catch (error) {
+        console.error('Error loading model:', error);
+        showError(`Failed to load model: ${error.message}`);
+    } finally {
+        loadModelBtn.disabled = false;
+        loadModelBtn.innerHTML = '<i class="fas fa-download mr-2"></i>Load Model';
+    }
+}
+
+// Load Model by ID (from list)
+async function loadModelById(modelId) {
+    try {
+        const formData = new FormData();
+        formData.append('model_id', modelId);
+        
+        const response = await fetch(API_ENDPOINTS.loadModel, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showSuccess(`Model ${modelId} loaded successfully!`);
+            loadModels();
+        } else {
+            throw new Error(data.message || 'Failed to load model');
+        }
+    } catch (error) {
+        console.error('Error loading model:', error);
+        showError(`Failed to load model: ${error.message}`);
+    }
+}
+
+// Unload Model by ID
+async function unloadModelById(modelId) {
+    try {
+        const formData = new FormData();
+        formData.append('model_id', modelId);
+        
+        const response = await fetch(API_ENDPOINTS.unloadModel, {
+            method: 'DELETE',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showSuccess(`Model ${modelId} unloaded from memory`);
+            loadModels();
+        } else {
+            showError(data.message || 'Failed to unload model');
+        }
+    } catch (error) {
+        console.error('Error unloading model:', error);
+        showError(`Failed to unload model: ${error.message}`);
+    }
+}
+
+// Delete Model by ID
+async function deleteModelById(modelId) {
+    if (!confirm(`Are you sure you want to delete model "${modelId}"? This will remove it from the registry and unload from memory.`)) {
+        return;
+    }
+    
+    try {
+        const formData = new FormData();
+        formData.append('model_id', modelId);
+        
+        const response = await fetch(API_ENDPOINTS.deleteModel, {
+            method: 'DELETE',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showSuccess(`Model ${modelId} deleted successfully`);
+            loadModels();
+        } else {
+            showError(data.message || 'Failed to delete model');
+        }
+    } catch (error) {
+        console.error('Error deleting model:', error);
+        showError(`Failed to delete model: ${error.message}`);
+    }
+}
+
+// File Handling
+function handleFileSelect(e) {
+    const file = e.target.files[0];
+    if (file) {
+        processFile(file);
+    }
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+    dropArea.classList.add('drag-over');
+}
+
+function handleDragLeave(e) {
+    e.preventDefault();
+    dropArea.classList.remove('drag-over');
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    dropArea.classList.remove('drag-over');
+    
+    const file = e.dataTransfer.files[0];
+    if (file) {
+        processFile(file);
+    }
+}
+
+function processFile(file) {
+    // Validate file type
+    const allowedExtensions = ['.wav', '.mp3', '.flac', '.m4a', '.ogg'];
+    const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
+    
+    if (!allowedExtensions.includes(fileExtension)) {
+        showError(`Invalid file format. Allowed formats: ${allowedExtensions.join(', ')}`);
+        return;
+    }
+    
+    // Validate file size (25MB)
+    const maxSize = 25 * 1024 * 1024;
+    if (file.size > maxSize) {
+        showError('File is too large. Maximum size is 25MB.');
+        return;
+    }
+    
+    selectedFile = file;
+    showFileInfo(file);
+}
+
+function showFileInfo(file) {
+    uploadPrompt.classList.add('hidden');
+    fileInfo.classList.remove('hidden');
+    
+    fileName.textContent = file.name;
+    fileSize.textContent = formatFileSize(file.size);
+    
+    hideError();
+    resultsCard.classList.add('hidden');
+}
+
+function showUploadPrompt() {
+    uploadPrompt.classList.remove('hidden');
+    fileInfo.classList.add('hidden');
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+}
+
+// Transcription
+async function transcribeAudio() {
+    if (!selectedFile) {
+        showError('Please select an audio file first.');
+        return;
+    }
+    
+    const selectedModel = modelSelect.value;
+    if (!selectedModel) {
+        showError('Please select a model for transcription.');
+        return;
+    }
+    
+    // Show loading state
+    loadingCard.classList.remove('hidden');
+    resultsCard.classList.add('hidden');
+    hideError();
+    transcribeBtn.disabled = true;
+    
+    try {
+        // Prepare form data
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('model_id', selectedModel);
+        
+        // Send request
+        const response = await fetch(API_ENDPOINTS.transcribe, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showResults(data);
+        } else {
+            throw new Error(data.error || 'Transcription failed');
+        }
+        
+    } catch (error) {
+        console.error('Transcription error:', error);
+        showError(`Transcription failed: ${error.message}`);
+    } finally {
+        loadingCard.classList.add('hidden');
+        transcribeBtn.disabled = false;
+    }
+}
+
+// Display Results
+function showResults(data) {
+    resultsCard.classList.remove('hidden');
+    resultsCard.classList.add('fade-in');
+    
+    transcriptionText.textContent = data.transcription || 'No transcription available';
+    document.getElementById('result-model').textContent = data.model_used;
+    document.getElementById('result-duration').textContent = 
+        data.audio_duration ? `${data.audio_duration.toFixed(2)}s` : 'N/A';
+    document.getElementById('result-time').textContent = `${data.processing_time.toFixed(2)}s`;
+    document.getElementById('result-chars').textContent = 
+        data.transcription ? data.transcription.length : 0;
+}
+
+// Copy Transcription
+async function copyTranscription() {
+    const text = transcriptionText.textContent;
+    
+    try {
+        await navigator.clipboard.writeText(text);
+        
+        // Show feedback
+        const originalHTML = copyBtn.innerHTML;
+        copyBtn.innerHTML = '<i class="fas fa-check mr-2"></i>Copied!';
+        copyBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+        copyBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+        
+        setTimeout(() => {
+            copyBtn.innerHTML = originalHTML;
+            copyBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
+            copyBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+        }, 2000);
+        
+    } catch (error) {
+        showError('Failed to copy transcription to clipboard');
+    }
+}
+
+// Error/Success Handling
+function showError(message) {
+    errorCard.classList.remove('hidden', 'bg-green-50', 'border-green-200');
+    errorCard.classList.add('fade-in', 'bg-red-50', 'border-red-200');
+    document.getElementById('error-message').textContent = message;
+    document.getElementById('error-message').parentElement.querySelector('h3').textContent = 'Error';
+    document.querySelector('#error-card .fa-exclamation-circle').classList.remove('text-green-600');
+    document.querySelector('#error-card .fa-exclamation-circle').classList.add('text-red-600');
+}
+
+function showSuccess(message) {
+    errorCard.classList.remove('hidden', 'bg-red-50', 'border-red-200');
+    errorCard.classList.add('fade-in', 'bg-green-50', 'border-green-200');
+    document.getElementById('error-message').textContent = message;
+    document.getElementById('error-message').parentElement.querySelector('h3').textContent = 'Success';
+    document.querySelector('#error-card .fa-exclamation-circle').classList.remove('text-red-600');
+    document.querySelector('#error-card .fa-exclamation-circle').classList.add('text-green-600');
+    
+    // Auto-hide success messages
+    setTimeout(hideError, 5000);
+}
+
+function hideError() {
+    errorCard.classList.add('hidden');
+}
+
+// Make functions available globally for onclick handlers
+window.loadModelById = loadModelById;
+window.unloadModelById = unloadModelById;
+window.deleteModelById = deleteModelById;

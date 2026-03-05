@@ -49,7 +49,8 @@ class ModelManager:
             # Load processor
             processor = AutoProcessor.from_pretrained(
                 model_id,
-                trust_remote_code=True
+                trust_remote_code=True,
+                token=token if token else None
             )
             
             # Load model with appropriate settings

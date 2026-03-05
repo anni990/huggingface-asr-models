@@ -46,12 +46,17 @@ class ModelManager:
             else:
                 logger.warning(f"No HuggingFace token provided. Loading may fail for private models.")
 
-            # Load processor
-            processor = AutoProcessor.from_pretrained(
-                model_id,
-                trust_remote_code=True,
-                token=token if token else None
-            )
+            if "indic-conformer" in model_id.lower():
+                # This model doesn't use a standard AutoProcessor
+                processor = None 
+                model = AutoModel.from_pretrained(
+                    model_id,
+                    trust_remote_code=True,
+                    token=token if token else None
+                )
+            else:
+                # Standard path for Whisper/Qwen etc.
+                processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True, token=token)
             
             # Load model with appropriate settings
             if "Qwen2-Audio" in model_id or "Qwen3-ASR" in model_id or "Qwen" in model_id:

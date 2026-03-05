@@ -37,8 +37,15 @@ class ModelManager:
                 logger.info(f"Model {model_id} already loaded")
                 return True
             
+            token = settings.HUGGINGFACE_TOKEN
+
             logger.info(f"Loading model: {model_id}")
             
+            if token:
+                logger.info(f"Using HuggingFace token for authentication")
+            else:
+                logger.warning(f"No HuggingFace token provided. Loading may fail for private models.")
+
             # Load processor
             processor = AutoProcessor.from_pretrained(
                 model_id,
@@ -52,7 +59,8 @@ class ModelManager:
                     model_id,
                     torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
                     device_map="auto" if self.device == "cuda" else None,
-                    trust_remote_code=True
+                    trust_remote_code=True,
+                    token=token if token else None
                 )
             else:
                 # Standard ASR models like Whisper
@@ -60,7 +68,8 @@ class ModelManager:
                     model_id,
                     torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
                     device_map="auto" if self.device == "cuda" else None,
-                    trust_remote_code=True
+                    trust_remote_code=True,
+                    token=token if token else None
                 )
             
             if self.device == "cpu":

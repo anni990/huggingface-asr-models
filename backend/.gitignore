@@ -35,7 +35,7 @@ wheels/
 *~
 
 # Models cache
-models/
+# models/
 .cache/
 
 # Logs
